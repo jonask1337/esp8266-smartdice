@@ -10,10 +10,12 @@
  
 const int history_size = 10;
 // WiFi config
-const char* ssid     = "your_ssid"; 
-const char* password = "your_pw";
+String ssid     = ""; 
+String password = "";
 // MQTT server
 const char* server = "mqtt_server_name";
+
+ESP8266WebServer web_server(80);
 
 // MPU6050 variables
 MPU6050 mpu;
@@ -89,6 +91,32 @@ void plot_acc(){
   Serial.println((az)/16384.0);   
 }
 
+/*
+ * Handle the configuration http request and set wifi credentials
+ */
+void handleConfig() {
+  if (web_server.arg("ssid").length() > 0 && web_server.arg("pwd").length() > 0) {
+    ssid = web_server.arg("ssid");
+    password = web_server.arg("pwd");
+  }
+   
+  String response = "<!DOCTYPE html><html><head><title>SmartDice Konfiguration</title>"
+   "<meta name='viewport' content='width=device-width, initial-scale=1.0'></head>"
+   "<body><h2>SmartDice Konfiguration</h2>"
+   "Verbinde den SmartDice mit einem bestehenden WLAN Netzwerk.<br><br>"
+   "<form method='post' action='/'><table>"
+   "<tr><td>SSID:</td><td><input type='text' name='ssid' value='";
+   response += ssid;
+   response += "'></td></tr>"
+   "<tr><td>Passwort:</td><td><input type='password' name='pwd'></td></tr>"
+   "<tr><td></td><td><button style='width:100%;' type='submit'>SmartDice verbinden</button></td></tr>"
+   "</table></form></body></html>";
+   
+   web_server.send(200, "text/html", response);
+   Serial.println(ssid);
+   Serial.println(password);
+} 
+
 /* SETUP */
 void setup() {
   // join i2c bus
@@ -122,6 +150,11 @@ void setup() {
   calibrate_acc();
   Serial.print("ax_offset: ");
   Serial.println(ax_offset);
+
+  // Enable AP and Server for configuration
+  WiFi.softAP("SmartDice", "smartdice");
+  web_server.on("/", handleConfig);
+  web_server.begin();
 
   /*
   pinMode(BUTTON, INPUT);
@@ -168,6 +201,7 @@ void loop() {
       delay(5000);
     }
    }*/
+   web_server.handleClient();
    detect_throw(); 
    plot_acc();
    //Serial.println(mpu.getMotionStatus());
