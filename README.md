@@ -4,6 +4,8 @@ The following libraries must be installed in order to run the esp8266-smartdice 
 
 pubsubclient: https://pubsubclient.knolleary.net/
 
+WiFiManager: https://github.com/tzapu/WiFiManager
+
 From the I2C Device Library collection by Jeff Rowberg the MPU6050 library is used.
 i2cdevlib: https://github.com/jrowberg/i2cdevlib
 
