@@ -9,6 +9,7 @@
 #include <ESP8266WebServer.h>
 #include <Ticker.h>
 
+#define DICE_ID 192356235
 #define LED1 D1
 #define LED2 D2
 #define LED3 D3
@@ -18,6 +19,7 @@
 #define BUTTON D4
 #define SCL D6
 #define SDA D5
+
 
 // MQTT server
 const char* server = "test.mosquitto.org";
@@ -186,9 +188,12 @@ void publish_values() {
     // Once connected, publish an announcement...
     String msg_buf = "leeroy: " + String(modus);
     char msg[20];
+    String topic_buf = "smartdice/" + String(DICE_ID);
+    char topic[50];
+    topic_buf.toCharArray(topic, 50);
     msg_buf.toCharArray(msg, 20);
-    client.publish("leeroy", msg);
-    Serial.println("Message published");
+    client.publish(topic, msg);
+    Serial.print("Message published");
     //delay(300);
   } else {
     Serial.print("failed, rc=");
@@ -244,7 +249,7 @@ void loop() {
       WiFiManager wifiManager;
       // Set callback to toggle the leds
       wifiManager.setAPCallback(configModeCallback);
-
+      WiFi.disconnect(true);
       if (!wifiManager.startConfigPortal("SmartDice")) {
         Serial.println("Failed to connect..");
         delay(3000);
