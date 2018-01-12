@@ -19,7 +19,9 @@
 #define BUTTON D4
 #define SCL D6
 #define SDA D5
+#define CLIENT_ID "ESP8266Client1"
 
+String mode_names[] = {"D6", "D12","D20", "user"}; 
 
 // MQTT server
 const char* server = "test.mosquitto.org";
@@ -122,59 +124,57 @@ void toggle_all_led() {
     turn_on_led(LED2);
     turn_on_led(LED3);
   }
-
 }
 
-void change_mode() {
+void update_leds(){
   switch (modus) {
     case 0:
       turn_on_led(LED1);
       turn_off_led(LED2);
       turn_off_led(LED3);
-      modus = 1;
       break;
     case 1:
       turn_off_led(LED1);
       turn_on_led(LED2);
       turn_off_led(LED3);
-      modus = 2;
       break;
     case 2:
       turn_on_led(LED1);
       turn_on_led(LED2);
       turn_off_led(LED3);
-      modus = 3;
       break;
     case 3:
       turn_off_led(LED1);
       turn_off_led(LED2);
       turn_on_led(LED3);
-      modus = 4;
       break;
     case 4:
       turn_on_led(LED1);
       turn_off_led(LED2);
       turn_on_led(LED3);
-      modus = 5;
       break;
     case 5:
       turn_off_led(LED1);
       turn_on_led(LED2);
       turn_on_led(LED3);
-      modus = 6;
       break;
     case 6:
       turn_on_led(LED1);
       turn_on_led(LED2);
       turn_on_led(LED3);
-      modus = 7;
       break;
     default:
       turn_off_led(LED1);
       turn_off_led(LED2);
       turn_off_led(LED3);
-      modus = 0;
   }
+}
+
+void change_mode() {
+  modus = (modus + 1) % (sizeof(mode_names)/sizeof(String));
+  Serial.println(modus); 
+  update_leds();  
+  set_mode(mode_names[modus]);
 }
 
 void configModeCallback (WiFiManager *myManager) {
@@ -183,22 +183,55 @@ void configModeCallback (WiFiManager *myManager) {
 
 void publish_values() {
   // Try to connect to the MQTT Broker
-  if (client.connect("ESP8266Client")) {
-    Serial.println("Connected to mqtt broker");
-    // Once connected, publish an announcement...
-    String msg_buf = "leeroy: " + String(modus);
-    char msg[20];
-    String topic_buf = "smartdice/" + String(DICE_ID);
-    char topic[50];
-    topic_buf.toCharArray(topic, 50);
-    msg_buf.toCharArray(msg, 20);
-    client.publish(topic, msg);
-    Serial.print("Message published");
-    //delay(300);
-  } else {
-    Serial.print("failed, rc=");
-    Serial.print(client.state());
+  while(!client.connected()){
+    client.connect(CLIENT_ID);
+    yield();
   }
+  Serial.println("Connected to mqtt broker");
+  // Once connected, publish an announcement...
+  String msg_buf = "leeroy: " + String(modus);
+  char msg[20];
+  String topic_buf = "smartdice/" + String(DICE_ID)+ "/roll";
+  char topic[50];
+  topic_buf.toCharArray(topic, 50);
+  msg_buf.toCharArray(msg, 20);
+  client.publish(topic, msg);
+  Serial.print("Message published");
+  //delay(300);
+}
+
+void set_mode(String dice_mode) {
+  // Try to connect to the MQTT Broker
+  while(!client.connected()){
+    client.connect(CLIENT_ID);
+    yield();
+  }
+  Serial.println("Connected to mqtt broker");
+  // Once connected, publish an announcement...
+  String msg_buf = dice_mode;
+  char msg[20];
+  String topic_buf = "smartdice/" + String(DICE_ID)+ "/setmode";
+  char topic[50];
+  topic_buf.toCharArray(topic, 50);
+  msg_buf.toCharArray(msg, 20);
+  client.publish(topic, msg);
+  Serial.print("Message published");
+  //delay(300);
+}
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("] ");
+  String mode_string = String((char*)payload).substring(0,length);
+  int array_length = sizeof(mode_names)/sizeof(String);
+  for(int i = 0; i < array_length;i++ ){
+    if(mode_string.equals(mode_names[i])){
+      modus = i;
+      update_leds();
+    }
+  }
+  Serial.println(mode_string);
 }
 
 /* SETUP */
@@ -236,10 +269,31 @@ void setup() {
 
   // Set mqtt server
   client.setServer(server, 1883);
+  update_leds();
 }
 
 /* MAIN CODE */
 void loop() {
+  if(!client.connected()){
+    if (client.connect(CLIENT_ID)) {
+      Serial.println("Connected to mqtt broker in main loop");
+      //String topic_buf = "smartdice/" + String(DICE_ID)+ "/getmode";
+      //char topic[50];
+      //topic_buf.toCharArray(topic, 50);
+      boolean sub_result;
+      client.setCallback(callback);
+      sub_result =  client.subscribe("smartdice/192356235/getmode");
+      Serial.println(sub_result);
+      //Serial.println("Subscribed to " + topic_buf);
+    } else {
+      Serial.print("failed to subscribe, rc=");
+      Serial.println(client.state());
+    } 
+  }
+  if(client.connected()){
+    client.loop();
+  }
+  
   // Check if button was is pressed
   buttonState = digitalRead(BUTTON);
   if (buttonState == 0) {
