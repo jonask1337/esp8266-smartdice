@@ -46,6 +46,9 @@ Ticker ticker;
 int modus = 0;
 int press_cycle_count = 0;
 
+unsigned int raw=0;
+float volt=0.0;
+
 /* FUNCTIONS */
 void calibrate_acc() {
   int i = 0;
@@ -183,9 +186,8 @@ void configModeCallback (WiFiManager *myManager) {
 
 void publish_values() {
   // Try to connect to the MQTT Broker
-  while(!client.connected()){
+  if(!client.connected()){
     client.connect(CLIENT_ID);
-    yield();
   }
   Serial.println("Connected to mqtt broker");
   // Once connected, publish an announcement...
@@ -202,9 +204,8 @@ void publish_values() {
 
 void set_mode(String dice_mode) {
   // Try to connect to the MQTT Broker
-  while(!client.connected()){
+  if(!client.connected()){
     client.connect(CLIENT_ID);
-    yield();
   }
   Serial.println("Connected to mqtt broker");
   // Once connected, publish an announcement...
@@ -215,8 +216,11 @@ void set_mode(String dice_mode) {
   topic_buf.toCharArray(topic, 50);
   msg_buf.toCharArray(msg, 20);
   client.publish(topic, msg);
+  String battery_buff = String(volt,5);
+  char battery[10];
+  battery_buff.toCharArray(battery,10);
+  client.publish("smartdicebattery",battery);
   Serial.print("Message published");
-  //delay(300);
 }
 
 void callback(char* topic, byte* payload, unsigned int length) {
@@ -233,6 +237,27 @@ void callback(char* topic, byte* payload, unsigned int length) {
   }
   Serial.println(mode_string);
 }
+
+void connect_and_subscribe(){
+  if(!client.connected()){
+    if (client.connect(CLIENT_ID)) {
+      Serial.println("Connected to mqtt broker in main loop");
+      //String topic_buf = "smartdice/" + String(DICE_ID)+ "/getmode";
+      //char topic[50];
+      //topic_buf.toCharArray(topic, 50);
+      boolean sub_result;
+      client.setCallback(callback);
+      //TODO
+      sub_result =  client.subscribe("smartdice/192356235/getmode");
+      Serial.println(sub_result);
+      //Serial.println("Subscribed to " + topic_buf);
+    } else {
+      Serial.print("failed to subscribe, rc=");
+      Serial.println(client.state());
+    } 
+  }
+}
+
 
 /* SETUP */
 void setup() {
@@ -252,6 +277,12 @@ void setup() {
   pinMode(LED3, OUTPUT);
   pinMode(BUTTON, INPUT_PULLUP);
 
+  // battery voltage
+  pinMode(A0, INPUT);
+  raw = analogRead(A0);
+  volt=raw/1023.0;
+  volt=volt*4.2;
+
   // initialize MPU6050 sensor platform
   Serial.println("Initializing MPU6050…");
   mpu.initialize();
@@ -270,26 +301,11 @@ void setup() {
   // Set mqtt server
   client.setServer(server, 1883);
   update_leds();
+  connect_and_subscribe();
 }
 
 /* MAIN CODE */
 void loop() {
-  if(!client.connected()){
-    if (client.connect(CLIENT_ID)) {
-      Serial.println("Connected to mqtt broker in main loop");
-      //String topic_buf = "smartdice/" + String(DICE_ID)+ "/getmode";
-      //char topic[50];
-      //topic_buf.toCharArray(topic, 50);
-      boolean sub_result;
-      client.setCallback(callback);
-      sub_result =  client.subscribe("smartdice/192356235/getmode");
-      Serial.println(sub_result);
-      //Serial.println("Subscribed to " + topic_buf);
-    } else {
-      Serial.print("failed to subscribe, rc=");
-      Serial.println(client.state());
-    } 
-  }
   if(client.connected()){
     client.loop();
   }
@@ -305,17 +321,29 @@ void loop() {
       wifiManager.setAPCallback(configModeCallback);
       WiFi.disconnect(true);
       if (!wifiManager.startConfigPortal("SmartDice")) {
-        Serial.println("Failed to connect..");
+        Serial.println("Wifi Manager Failed to connect...");
         delay(3000);
         ESP.reset();
         delay(5000);
       }
+      // update LEDs
       Serial.println("Successfully connected to wifi");
       ticker.detach();
     }
   } else {
     if (press_cycle_count > 1 && press_cycle_count < PRESS_DURATION / DELAY) {
-      change_mode();
+      if(client.connected()){
+        change_mode();
+      }else {
+        Serial.print("Connection attempt!");
+        // flash led   
+        toggle_all_led();
+        delay(50);
+        toggle_all_led();
+        delay(50);
+        update_leds();
+        connect_and_subscribe();
+      }      
     }
     press_cycle_count = 0;
   }
