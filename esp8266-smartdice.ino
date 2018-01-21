@@ -216,10 +216,12 @@ void set_mode(String dice_mode) {
   topic_buf.toCharArray(topic, 50);
   msg_buf.toCharArray(msg, 20);
   client.publish(topic, msg);
-  String battery_buff = String(volt,5);
-  char battery[10];
-  battery_buff.toCharArray(battery,10);
-  client.publish("smartdicebattery",battery);
+  // level publish
+  int level = get_level();
+  String battery_buff = String(level);
+  char battery[50];
+  battery_buff.toCharArray(battery,50);
+  client.publish("smartdice/192356235/battery",battery);
   Serial.print("Message published");
 }
 
@@ -258,6 +260,19 @@ void connect_and_subscribe(){
   }
 }
 
+int get_level(){
+  raw = analogRead(A0);
+  volt=raw/1023.0;
+  volt=volt*4.2;
+  Serial.print("Voltage: ");
+  Serial.println(volt);
+  int value = int(volt*1000);
+  int level = map(value, 3000,3900,0,100);
+  if (level < 0) {level = 0;}
+  if (level > 100) {level = 100;}
+  Serial.println(level);
+  return level;
+}
 
 /* SETUP */
 void setup() {
@@ -279,9 +294,6 @@ void setup() {
 
   // battery voltage
   pinMode(A0, INPUT);
-  raw = analogRead(A0);
-  volt=raw/1023.0;
-  volt=volt*4.2;
 
   // initialize MPU6050 sensor platform
   Serial.println("Initializing MPU6050…");
