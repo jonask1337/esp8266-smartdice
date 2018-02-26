@@ -21,11 +21,10 @@
 #define SDA D5
 #define CLIENT_ID "ESP8266Client1"
 
-String mode_names[] = {"D6", "D12","D20", "user"}; 
+String mode_names[] = {"D6", "D12", "D20", "user"};
 
 // MQTT server
 const char* server = "test.mosquitto.org";
-
 // MPU6050 variables
 MPU6050 mpu;
 int16_t ax, ay, az;
@@ -37,18 +36,16 @@ WiFiClient espClient;
 PubSubClient client(espClient);
 // Button
 int buttonState = 0;
-
-int motionless_count = 0;
-int motion_count = 0;
-
-Ticker ticker;
-
 int modus = 0;
 int press_cycle_count = 0;
+// Motion detection
+int motionless_count = 0;
+int motion_count = 0;
+// Battery Level
+unsigned int raw = 0;
+float volt = 0.0;
 
-unsigned int raw=0;
-float volt=0.0;
-
+Ticker ticker;
 /* FUNCTIONS */
 void calibrate_acc() {
   int i = 0;
@@ -59,19 +56,17 @@ void calibrate_acc() {
   for (i; i < 10 ; i++) {
     delay(1000);
     mpu.getAcceleration(&ax, &ay, &az);
-    // Serial.println(ax);
     ax_offset_ar[i] = ax;
   }
 
   for (i2; i2 < 10; i2++ ) {
-    // Serial.println(ax_offset_ar[i2]);
     offset = offset + ax_offset_ar[i2];
   }
-  // Serial.print("final ax ");
-  // Serial.println(offset);
   ax_offset = offset / 10.0;
 }
 
+// Checks if a throw event occured if this is the case
+// a message will be send to the /roll topic of the MQTT Broker.
 void detect_throw() {
   if (mpu.getMotionStatus() == 0) {
     if (motionless_count > 4) {
@@ -88,6 +83,7 @@ void detect_throw() {
   }
 }
 
+// Prints out the values of each axis of the gyroscope
 void plot_gyro() {
   Serial.print(mpu.getRotationX());
   Serial.print(" ");
@@ -96,6 +92,7 @@ void plot_gyro() {
   Serial.println(mpu.getRotationY());
 }
 
+// Prints out the values of each axis of the accelerometer
 void plot_acc() {
   mpu.getAcceleration(&ax, &ay, &az);
   Serial.print((ax - 600) / 16384.0);
@@ -105,18 +102,22 @@ void plot_acc() {
   Serial.println((az) / 16384.0);
 }
 
+// Sets the pin with the given name to HIGH
 void turn_on_led(int led_name) {
   if (digitalRead(led_name) == LOW) {
     digitalWrite(led_name, HIGH);
   }
 }
 
+// Sets the pin with the given name to LOW
 void turn_off_led(int led_name) {
   if (digitalRead(led_name) == HIGH) {
     digitalWrite(led_name, LOW);
   }
 }
 
+// Depending on the current state it either sets the
+// LED pins to HIGH or to LOW
 void toggle_all_led() {
   if (digitalRead(LED1) == HIGH) {
     turn_off_led(LED1);
@@ -129,7 +130,8 @@ void toggle_all_led() {
   }
 }
 
-void update_leds(){
+// Depending on the current modus the LEDs will be turned off or on
+void update_leds() {
   switch (modus) {
     case 0:
       turn_on_led(LED1);
@@ -173,66 +175,77 @@ void update_leds(){
   }
 }
 
+// Switches to the next available modus. If the last modus is currently selected
+// it changes to the first again. Updates the LEDs accordingly and sends the
+// information that the modus was changed to the MQTT Broker.
 void change_mode() {
-  modus = (modus + 1) % (sizeof(mode_names)/sizeof(String));
-  Serial.println(modus); 
-  update_leds();  
+  modus = (modus + 1) % (sizeof(mode_names) / sizeof(String));
+  Serial.println(modus);
+  update_leds();
   set_mode(mode_names[modus]);
 }
 
+// Callback function that toggles all LEDs when the Dice is in config mode.
 void configModeCallback (WiFiManager *myManager) {
   ticker.attach(0.2, toggle_all_led);
 }
 
+// Sends some values to the smartdice/<dice_id>/roll topic.
 void publish_values() {
   // Try to connect to the MQTT Broker
-  if(!client.connected()){
+  if (!client.connected()) {
     client.connect(CLIENT_ID);
   }
   Serial.println("Connected to mqtt broker");
-  // Once connected, publish an announcement...
   String msg_buf = "leeroy: " + String(modus);
   char msg[20];
-  String topic_buf = "smartdice/" + String(DICE_ID)+ "/roll";
+  String topic_buf = "smartdice/" + String(DICE_ID) + "/roll";
   char topic[50];
   topic_buf.toCharArray(topic, 50);
   msg_buf.toCharArray(msg, 20);
   client.publish(topic, msg);
   Serial.print("Message published");
-  //delay(300);
 }
 
+// Sends the current mode of the dice to the smartdice/<dice_id>/setmode
+// topic. Also publishes the battery level value to the smartdice/<dice_id>/battery topic
 void set_mode(String dice_mode) {
   // Try to connect to the MQTT Broker
-  if(!client.connected()){
+  if (!client.connected()) {
     client.connect(CLIENT_ID);
   }
-  Serial.println("Connected to mqtt broker");
-  // Once connected, publish an announcement...
+  // Publish the dice mode
   String msg_buf = dice_mode;
   char msg[20];
-  String topic_buf = "smartdice/" + String(DICE_ID)+ "/setmode";
+  String topic_buf = "smartdice/" + String(DICE_ID) + "/setmode";
   char topic[50];
   topic_buf.toCharArray(topic, 50);
   msg_buf.toCharArray(msg, 20);
   client.publish(topic, msg);
-  // level publish
+  // Publish the battery level
   int level = get_level();
   String battery_buff = String(level);
   char battery[50];
-  battery_buff.toCharArray(battery,50);
-  client.publish("smartdice/192356235/battery",battery);
+  battery_buff.toCharArray(battery, 50);
+  client.publish("smartdice/192356235/battery", battery);
   Serial.print("Message published");
 }
 
+// Callback for receiving messages from the subscribed /getmode topic.
+// If the received message contains a valid mode name the dice modus
+// will be changed and the LEDs will be updated.
 void callback(char* topic, byte* payload, unsigned int length) {
   Serial.print("Message arrived [");
   Serial.print(topic);
   Serial.print("] ");
-  String mode_string = String((char*)payload).substring(0,length);
-  int array_length = sizeof(mode_names)/sizeof(String);
-  for(int i = 0; i < array_length;i++ ){
-    if(mode_string.equals(mode_names[i])){
+  // Convert the payload bytearray to a String
+  String mode_string = String((char*)payload).substring(0, length);
+  // Check if the received String equals to one of the mode names.
+  int array_length = sizeof(mode_names) / sizeof(String);
+  for (int i = 0; i < array_length; i++ ) {
+    // If the reveived string is an valid mode name the
+    // modus will be changed and the LEDs updated.
+    if (mode_string.equals(mode_names[i])) {
       modus = i;
       update_leds();
     }
@@ -240,49 +253,54 @@ void callback(char* topic, byte* payload, unsigned int length) {
   Serial.println(mode_string);
 }
 
-void connect_and_subscribe(){
-  if(!client.connected()){
+// Connects to the MQTT Broker sets the callback to be able to
+// receive and handle messages from subscribed topics. And subcribes
+// to the /getmode topic.
+void connect_and_subscribe() {
+  if (!client.connected()) {
     if (client.connect(CLIENT_ID)) {
       Serial.println("Connected to mqtt broker in main loop");
-      //String topic_buf = "smartdice/" + String(DICE_ID)+ "/getmode";
-      //char topic[50];
-      //topic_buf.toCharArray(topic, 50);
       boolean sub_result;
       client.setCallback(callback);
-      //TODO
       sub_result =  client.subscribe("smartdice/192356235/getmode");
       Serial.println(sub_result);
-      //Serial.println("Subscribed to " + topic_buf);
     } else {
       Serial.print("failed to subscribe, rc=");
       Serial.println(client.state());
-    } 
+    }
   }
 }
 
-int get_level(){
+// If the battery is connected to the analog pin the current voltage
+// is read and mapped to a number between 0 and 100 based on the voltage
+// value when the battery is fully charged and when the battery is empty.
+int get_level() {
   raw = analogRead(A0);
-  volt=raw/1023.0;
-  volt=volt*4.2;
+  volt = raw / 1023.0;
+  volt = volt * 4.2;
   Serial.print("Voltage: ");
   Serial.println(volt);
-  int value = int(volt*1000);
-  int level = map(value, 3000,3900,0,100);
-  if (level < 0) {level = 0;}
-  if (level > 100) {level = 100;}
+  int value = int(volt * 1000);
+  int level = map(value, 3000, 3900, 0, 100);
+  if (level < 0) {
+    level = 0;
+  }
+  if (level > 100) {
+    level = 100;
+  }
   Serial.println(level);
   return level;
 }
 
 /* SETUP */
 void setup() {
-  // join i2c bus
+  // Join i2c bus
 #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
   Wire.begin(SDA, SCL);
 #elif I2CDEV_IMPLEMENTATION == I2CDEV_BUILTIN_FASTWIRE
   Fastwire::setup(400, true);
 #endif
-  // set baud rate
+  // Set baud rate
   Serial.begin(74880);
   delay(10);
 
@@ -292,20 +310,20 @@ void setup() {
   pinMode(LED3, OUTPUT);
   pinMode(BUTTON, INPUT_PULLUP);
 
-  // battery voltage
+  // Set pin mode for the analog pin
   pinMode(A0, INPUT);
 
-  // initialize MPU6050 sensor platform
+  // Initialize MPU6050 sensor platform
   Serial.println("Initializing MPU6050…");
   mpu.initialize();
 
-  // verify connection
+  // Verify connection to the MPU6050
   Serial.println("Testing device connections…");
   Serial.println(mpu.testConnection() ? "MPU6050 connection successful" : "MPU6050 connection failed");
 
-  // enable motion detection
+  // Enable motion detection
   mpu.setIntMotionEnabled(true);
-  mpu.setMotionDetectionThreshold(1);
+  mpu.setMotionDetectionThreshold(2);
   mpu.setMotionDetectionDuration(1);
   Serial.println(mpu.getMotionDetectionThreshold());
   Serial.println(mpu.getMotionDetectionDuration());
@@ -318,10 +336,9 @@ void setup() {
 
 /* MAIN CODE */
 void loop() {
-  if(client.connected()){
+  if (client.connected()) {
     client.loop();
   }
-  
   // Check if button was is pressed
   buttonState = digitalRead(BUTTON);
   if (buttonState == 0) {
@@ -338,28 +355,30 @@ void loop() {
         ESP.reset();
         delay(5000);
       }
-      // update LEDs
+      // Update LEDs
       Serial.println("Successfully connected to wifi");
       ticker.detach();
+      update_leds();
     }
   } else {
     if (press_cycle_count > 1 && press_cycle_count < PRESS_DURATION / DELAY) {
-      if(client.connected()){
+      if (client.connected()) {
         change_mode();
-      }else {
+      } else {
         Serial.print("Connection attempt!");
-        // flash led   
+        // Flash led
         toggle_all_led();
         delay(50);
         toggle_all_led();
         delay(50);
         update_leds();
         connect_and_subscribe();
-      }      
+      }
+    } else {
+      detect_throw();
     }
     press_cycle_count = 0;
   }
-  detect_throw();
   delay(DELAY);
 }
 
